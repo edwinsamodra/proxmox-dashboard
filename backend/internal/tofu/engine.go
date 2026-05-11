@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -354,8 +355,21 @@ func (e *Engine) workspacePath(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(e.workspaceDir, cleanName), nil
+
+	baseDir := filepath.Clean(e.workspaceDir)
+	targetDir := filepath.Join(baseDir, cleanName)
+	rel, err := filepath.Rel(baseDir, targetDir)
+	if err != nil {
+		return "", fmt.Errorf("resolving workspace path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid workspace path")
+	}
+
+	return targetDir, nil
 }
+
+var workspaceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 func sanitizeWorkspaceName(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
@@ -371,6 +385,9 @@ func sanitizeWorkspaceName(name string) (string, error) {
 
 	clean := filepath.Clean(trimmed)
 	if clean == "." || clean == ".." || clean != trimmed {
+		return "", fmt.Errorf("invalid workspace name")
+	}
+	if !workspaceNamePattern.MatchString(clean) {
 		return "", fmt.Errorf("invalid workspace name")
 	}
 

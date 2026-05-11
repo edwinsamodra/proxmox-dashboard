@@ -268,7 +268,10 @@ output "container_id" {
 
 // CreateWorkspace creates a new workspace directory with a main.tf file.
 func (e *Engine) CreateWorkspace(name, tfContent string) error {
-	dir := filepath.Join(e.workspaceDir, name)
+	dir, err := e.workspacePath(name)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("creating workspace dir: %w", err)
 	}
@@ -278,7 +281,11 @@ func (e *Engine) CreateWorkspace(name, tfContent string) error {
 
 // GetWorkspaceTF returns the main.tf content of a workspace.
 func (e *Engine) GetWorkspaceTF(name string) (string, error) {
-	tfPath := filepath.Join(e.workspaceDir, name, "main.tf")
+	dir, err := e.workspacePath(name)
+	if err != nil {
+		return "", err
+	}
+	tfPath := filepath.Join(dir, "main.tf")
 	data, err := os.ReadFile(tfPath)
 	if err != nil {
 		return "", fmt.Errorf("reading workspace tf: %w", err)
@@ -288,7 +295,10 @@ func (e *Engine) GetWorkspaceTF(name string) (string, error) {
 
 // SaveWorkspaceTF saves the main.tf content of a workspace.
 func (e *Engine) SaveWorkspaceTF(name, content string) error {
-	dir := filepath.Join(e.workspaceDir, name)
+	dir, err := e.workspacePath(name)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("creating workspace dir: %w", err)
 	}
@@ -298,13 +308,22 @@ func (e *Engine) SaveWorkspaceTF(name, content string) error {
 
 // DeleteWorkspace removes a workspace directory.
 func (e *Engine) DeleteWorkspace(name string) error {
-	dir := filepath.Join(e.workspaceDir, name)
+	dir, err := e.workspacePath(name)
+	if err != nil {
+		return err
+	}
 	return os.RemoveAll(dir)
 }
 
 // Run executes a tofu command in a workspace.
 func (e *Engine) Run(workspaceName string, args ...string) ExecResult {
-	dir := filepath.Join(e.workspaceDir, workspaceName)
+	dir, err := e.workspacePath(workspaceName)
+	if err != nil {
+		return ExecResult{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
 
 	cmd := exec.Command(e.binaryPath, args...)
 	cmd.Dir = dir
@@ -328,6 +347,34 @@ func (e *Engine) Run(workspaceName string, args ...string) ExecResult {
 		Success: true,
 		Output:  combined,
 	}
+}
+
+func (e *Engine) workspacePath(name string) (string, error) {
+	cleanName, err := sanitizeWorkspaceName(name)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(e.workspaceDir, cleanName), nil
+}
+
+func sanitizeWorkspaceName(name string) (string, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return "", fmt.Errorf("workspace name is required")
+	}
+	if filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("invalid workspace name")
+	}
+	if strings.Contains(trimmed, "/") || strings.Contains(trimmed, "\\") {
+		return "", fmt.Errorf("invalid workspace name")
+	}
+
+	clean := filepath.Clean(trimmed)
+	if clean == "." || clean == ".." || clean != trimmed {
+		return "", fmt.Errorf("invalid workspace name")
+	}
+
+	return clean, nil
 }
 
 // Init runs tofu init in the workspace.

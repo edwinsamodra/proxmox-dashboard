@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // Client wraps golang.org/x/crypto/ssh for Proxmox node SSH access.
@@ -28,12 +30,13 @@ const (
 
 // Config holds SSH connection parameters.
 type Config struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	KeyPath  string
-	Method   AuthMethod
+	Host           string
+	Port           int
+	User           string
+	Password       string
+	KeyPath        string
+	Method         AuthMethod
+	KnownHostsPath string
 }
 
 // NewClient creates and connects an SSH client.
@@ -61,10 +64,15 @@ func NewClient(cfg Config) (*Client, error) {
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
 
+	hostKeyCallback, err := buildHostKeyCallback(cfg.KnownHostsPath)
+	if err != nil {
+		return nil, err
+	}
+
 	sshCfg := &ssh.ClientConfig{
 		User:            cfg.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         10 * time.Second,
 	}
 
@@ -80,6 +88,22 @@ func NewClient(cfg Config) (*Client, error) {
 		user:    cfg.User,
 		sshConn: conn,
 	}, nil
+}
+
+func buildHostKeyCallback(knownHostsPath string) (ssh.HostKeyCallback, error) {
+	if knownHostsPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("determining home dir for known_hosts: %w", err)
+		}
+		knownHostsPath = filepath.Join(home, ".ssh", "known_hosts")
+	}
+
+	callback, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading known_hosts file %q: %w", knownHostsPath, err)
+	}
+	return callback, nil
 }
 
 // Run executes a command and returns combined stdout/stderr.

@@ -333,7 +333,7 @@ func (e *Engine) Run(workspaceName string, args ...string) ExecResult {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	combined := stdout.String() + stderr.String()
 
 	if err != nil {
